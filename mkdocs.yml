@@ -1,0 +1,28 @@
+site_name: CloudConvertR 
+
+theme:
+  name: material
+  logo: assets/CloudConvertR-noBackGround.png
+  favicon: assets/CloudConvertR-noBackGround.png
+  features:
+    - content.code.copy
+  palette:
+    primary: deep purple
+    accent: deep purple
+
+nav:
+  - index.md
+  - infraestrutura.md
+  - instalacao.md
+  - implementacao.md
+  - utilizacao.md
+
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
