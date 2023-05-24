@@ -1,0 +1,14 @@
+/* custom.css */
+
+/* Change the size of the logo image */
+.logo {
+    max-width: 2px; /* Adjust the width as needed */
+    height: auto;
+  }
+  
+  /* Change the size of the favicon image */
+  .favicon {
+    width: 5px; /* Adjust the width as needed */
+    height: 5px; /* Adjust the height as needed */
+  }
+  

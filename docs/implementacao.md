@@ -312,7 +312,83 @@ A função Lambda, dentro do nosso projeto, tem a funcionalidade de realizar a c
 
 ![Lambda](assets/Lambda.png)
 
-```terraform
+Para a criação da função Lambda foi necessário configurar algumas políticas de acesso como receber os arquivos via fila SQS, acesso ao manuseio de arquivos do S3 e permissões básicas de execução para a função. No código abaixo está representado a política da função e cada uma das roles que possibilitam as ações listadas acima. A diferença entre funções IAM (Roles) e políticas (Policies) na AWS é que uma função é um tipo de identidade IAM que pode ser autenticada e autorizada a utilizar um recurso da AWS, enquanto uma política define as permissões da identidade IAM.
+
+```terraform linenums="1"
+data "aws_iam_policy_document" "lambda_policy" {
+  statement {
+    effect = "Allow"
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "lambda_role" {
+  name               = "lambda_role"
+  assume_role_policy = data.aws_iam_policy_document.lambda_policy.json
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_sqs_role_policy" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaSQSQueueExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_s3_role_policy" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonS3FullAccess"
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_basic_execution_role_policy" {
+  role       = aws_iam_role.lambda_role.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+```
+
+Para a criação da porópria função Lambda foi preciso criar uma pasta zipada com o código em python que performará a conversão dos arquivos. Para realizar a ação de zipar a pasta temos o código abaixo:
+```terraform linenums="1"
+data "archive_file" "zip_python_code" {
+  type = "zip"
+  source_dir  = "${path.module}/python/"
+  output_path = "${path.module}/python/lambda-CloudConvertR.zip"
+}
+```
+Com o código zipado podemos criar a nossa função Lambda. Vamos análisar cada uma das variáveis da criação da Lambda para melhor entendermos o processo. O "filename" é o nome do arquivo .zip que queremos realizar o upload. O "function_name" é o nome da nossa função Lambda, é como veremos ela na interface da AWS. O "role" são as permissões que definimos anteriormente. O "handler" é muito importante e é precisocuidado na sua especificação; ele segue o seguuinte padrão: <nome_do_arquivo.py>.<nome_da_função_dentro_do_arquivo>, portanto certifique-se de que esses nomes estão condizentes. O "runtime" é o ambiente em que sua aplicação irá rodar, no caso desse projeto é o python. Com isso temos o seguinte código:  
+```terraform linenums="1"
+resource "aws_lambda_function" "lambda-test-cp" {
+  filename      = "${path.module}/python/lambda-CloudConvertR.zip"
+  function_name = "lambda-CloudConvertR"
+  role          = aws_iam_role.lambda_role.arn
+  handler       = "lambda-CloudConvertR.CloudConvertR"   # <nome_do_arquivo.py>.<nome_da_função_dentro_do_arquivo>
+  runtime       = "python3.8"
+}
+```
+
+Nossa função faz uso da biblioteca "markdown", que é uma biblioteca especifica e não nativa do python para realizar a conversão dos arquivos, portanto, é preciso criar uma layer que conterá os requerimentos dessa biblioteca. É preciso também que todos esses requerimentos estejam em uma pasta .zip, então foi rodado o seguinte comando para a criação da pasta:
+
+```bash
+$ pip install markdown -t layer/python/lib/python3.8/site-packages/
+```
+
+E para a subida dessa layer via terraform temos:
+```terraform linenums="1"
+resource "aws_lambda_layer_version" "lambda_layer_payload" {
+  filename   = "${path.module}/python/python.zip"
+  layer_name = "markdown"
+}
+```
+Nossa Lambda está pronta, mas falta conecta-lá com o SQS. É preciso mapear o evento de chegada de novos items na fila SQS e toda vez que um elemento novo chegar a Lambda deve ser executada. Para isso montamos o código abaixo. Observe que na linha 2 fora especificado o recurso SQS que críamos anteriormente:
+```terraform hl_lines="2" linenums="1"
+resource "aws_lambda_event_source_mapping" "event_source_mapping" {
+  event_source_arn = aws_sqs_queue.sqs-CloudConvertR.arn
+  function_name    = aws_lambda_function.lambda-test-cp.arn
+}
+```
+
+Por fim, nosso código para a criação da Lambda ficou assim:
+```terraform linenums="1"
 data "aws_iam_policy_document" "lambda_policy" {
   statement {
     effect = "Allow"
@@ -363,8 +439,221 @@ resource "aws_lambda_event_source_mapping" "event_source_mapping" {
   event_source_arn = aws_sqs_queue.sqs-CloudConvertR.arn
   function_name    = aws_lambda_function.lambda-test-cp.arn
 }
+
+resource "aws_lambda_layer_version" "lambda_layer_payload" {
+  filename   = "${path.module}/python/python.zip"
+  layer_name = "markdown"
+}
 ```
 
+
+#### CloudWatch
+O Amazon CloudWatch coleta e visualiza logs, métricas e dados de eventos em tempo reale nós vamos utilizá-lo para verificar possíveis erros de execução da função Lambda.
+
+![CloudWatch](assets/CloudWatch.png)
+
+O código para a criação do CloudWatch foi implementado da seguinte maneira:
+```terraform linenums="1"
+resource "aws_cloudwatch_metric_alarm" "cloudwatch-CloudConvertR" {
+  alarm_name                = "cloudwatch-CloudConvertR"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "Errors"
+  namespace                 = "AWS/Lambda"
+  period                    = 60
+  statistic                 = "Sum"
+  threshold                 = 0
+  alarm_description         = "This metric monitors Lambda function errors"
+  alarm_actions             = [aws_sns_topic.sns-cloudwatch-CloudConvertR.arn]
+  insufficient_data_actions = []
+  dimensions = {
+    FunctionName = aws_lambda_function.lambda-CloudConvertR.id
+  }
+}
+```
+
+O objetivo do CloudWatch é identificar todos erros "evento" (*metric_name*) e sinalizar quando cada um deles acontecer. Para isso fora escolhida a métrica de "soma" (_statistic_) e o "limite" (_threshold_) de 0, assim toda vez que um erro acontecer (a soma será maior que 0) o CloudWatch entrará em estado de alerta.
+```terraform hl_lines="5 7 8" linenums="1"
+resource "aws_cloudwatch_metric_alarm" "cloudwatch-CloudConvertR" {
+  alarm_name                = "cloudwatch-CloudConvertR"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "Errors"
+  namespace                 = "AWS/Lambda"
+  period                    = 60
+  statistic                 = "Sum"
+  threshold                 = 0
+  alarm_description         = "This metric monitors Lambda function errors"
+  alarm_actions             = [aws_sns_topic.sns-cloudwatch-CloudConvertR.arn]
+  insufficient_data_actions = []
+  dimensions = {
+    FunctionName = aws_lambda_function.lambda-CloudConvertR.id
+  }
+}
+```
+
+É preciso também definir um recurso para observar quando o CloudWatch entra em estado de alerta, para isso nós estamos utilizando um tópico SNS (*alarm_actions*). Toda vez que estiver um erro na função, uma nova mensagem aparecerá no tópico SNS.
+```terraform hl_lines="11" linenums="1"
+resource "aws_cloudwatch_metric_alarm" "cloudwatch-CloudConvertR" {
+  alarm_name                = "cloudwatch-CloudConvertR"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "Errors"
+  namespace                 = "AWS/Lambda"
+  period                    = 60
+  statistic                 = "Sum"
+  threshold                 = 0
+  alarm_description         = "This metric monitors Lambda function errors"
+  alarm_actions             = [aws_sns_topic.sns-cloudwatch-CloudConvertR.arn]
+  insufficient_data_actions = []
+  dimensions = {
+    FunctionName = aws_lambda_function.lambda-CloudConvertR.id
+  }
+}
+```
+
+É preciso também definir um recurso para observar quando o CloudWatch entra em estado de alerta, para isso nós estamos utilizando um tópico SNS (*alarm_actions*). Toda vez que estiver um erro na função, uma nova mensagem aparecerá no tópico SNS.
+```terraform hl_lines="11" linenums="1"
+resource "aws_cloudwatch_metric_alarm" "cloudwatch-CloudConvertR" {
+  alarm_name                = "cloudwatch-CloudConvertR"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "Errors"
+  namespace                 = "AWS/Lambda"
+  period                    = 60
+  statistic                 = "Sum"
+  threshold                 = 0
+  alarm_description         = "This metric monitors Lambda function errors"
+  alarm_actions             = [aws_sns_topic.sns-cloudwatch-CloudConvertR.arn]
+  insufficient_data_actions = []
+  dimensions = {
+    FunctionName = aws_lambda_function.lambda-CloudConvertR.id
+  }
+}
+```
+Outra variável importante é o recurso que o CloudWatch irá monitorar, no nosso caso é uma função Lambda. Portanto, para definir isso é preciso colocar o nome da função dentro da variável _dimensions_ como mostrado no código abaixo:
+```terraform hl_lines="13-15" linenums="1"
+resource "aws_cloudwatch_metric_alarm" "cloudwatch-CloudConvertR" {
+  alarm_name                = "cloudwatch-CloudConvertR"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "Errors"
+  namespace                 = "AWS/Lambda"
+  period                    = 60
+  statistic                 = "Sum"
+  threshold                 = 0
+  alarm_description         = "This metric monitors Lambda function errors"
+  alarm_actions             = [aws_sns_topic.sns-cloudwatch-CloudConvertR.arn]
+  insufficient_data_actions = []
+  dimensions = {
+    FunctionName = aws_lambda_function.lambda-CloudConvertR.id
+  }
+}
+```
+
+Vamos agora criar o tópico SNS que receberá as notificações do CloudWatch e subscrever um email no mesmo para que sejamos notificados toda vez que um erro ocorrer. Lembre-se de configurar a policy para permitir que o CloudWatch tenha permissões para criar novas mensagens no tópico, igual fizemos com o tópico SNS anterior, em que configuramos uma permissão para os eventos de upload no S3 pudessem escrever mensagens no tópico.
+```terraform hl_lines="10-11 14-15 20" linenums="1"
+resource "aws_sns_topic" "sns-cloudwatch-CloudConvertR" {
+  name   = "sns-cloudwatch-CloudConvertR"
+}
+
+data "aws_iam_policy_document" "sns-cloudwatch-policy" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    actions   = ["SNS:Publish"]
+    resources = ["arn:aws:sns:*:*:sns-cloudwatch-CloudConvertR"]
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_metric_alarm.cloudwatch-CloudConvertR.arn]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "default" {
+  arn = aws_sns_topic.sns-cloudwatch-CloudConvertR.arn
+  policy = data.aws_iam_policy_document.sns-cloudwatch-policy.json
+}
+```
+Para inscrever um email no tópico SNS basta implementar o código abaixo:
+```terraform linenums="1"
+variable "email" {
+  type = string
+}
+
+resource "aws_sns_topic_subscription" "lambda_errors_email_notification" {
+  topic_arn = aws_sns_topic.sns-cloudwatch-CloudConvertR.arn
+  protocol  = "email"
+  endpoint  = var.email
+}
+```
+
+Com isso, nosso código final para a criação do CloudWatch ficou da seguinte maneira:
+```terraform linenums="1"
+resource "aws_sns_topic" "sns-cloudwatch-CloudConvertR" {
+  name   = "sns-cloudwatch-CloudConvertR"
+}
+
+resource "aws_cloudwatch_metric_alarm" "cloudwatch-CloudConvertR" {
+  alarm_name                = "cloudwatch-CloudConvertR"
+  comparison_operator       = "GreaterThanThreshold"
+  evaluation_periods        = 1
+  metric_name               = "Errors"
+  namespace                 = "AWS/Lambda"
+  period                    = 60
+  statistic                 = "Sum"
+  threshold                 = 0
+  alarm_description         = "This metric monitors Lambda function errors"
+  alarm_actions             = [aws_sns_topic.sns-cloudwatch-CloudConvertR.arn]
+  insufficient_data_actions = []
+  dimensions = {
+    FunctionName = aws_lambda_function.lambda-CloudConvertR.id
+  }
+}
+
+
+data "aws_iam_policy_document" "sns-cloudwatch-policy" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+
+    actions   = ["SNS:Publish"]
+    resources = ["arn:aws:sns:*:*:sns-cloudwatch-CloudConvertR"]
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_metric_alarm.cloudwatch-CloudConvertR.arn]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "default" {
+  arn = aws_sns_topic.sns-cloudwatch-CloudConvertR.arn
+  policy = data.aws_iam_policy_document.sns-cloudwatch-policy.json
+}
+
+variable "email" {
+  type = string
+}
+
+resource "aws_sns_topic_subscription" "lambda_errors_email_notification" {
+  topic_arn = aws_sns_topic.sns-cloudwatch-CloudConvertR.arn
+  protocol  = "email"
+  endpoint  = var.email
+}
+```
 
 
 ## Python

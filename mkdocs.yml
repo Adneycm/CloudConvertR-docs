@@ -7,8 +7,14 @@ theme:
   features:
     - content.code.copy
   palette:
-    primary: deep purple
-    accent: deep purple
+    primary: teal
+    accent: teal
+
+extra_css:
+  - assets/css/custom.css
+
+repo_url: https://github.com/Adneycm/CloudConvertR
+
 
 nav:
   - index.md
