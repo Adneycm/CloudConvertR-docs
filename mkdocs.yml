@@ -2,18 +2,33 @@ site_name: CloudConvertR
 
 theme:
   name: material
-  logo: assets/CloudConvertR-noBackGround.png
-  favicon: assets/CloudConvertR-noBackGround.png
+  logo: assets/CloudConvertR-light.png
+  favicon: assets/CloudConvertR-light.png
   features:
     - content.code.copy
+    - content.code.annotate
   palette:
-    primary: teal
-    accent: teal
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default 
+      primary: 'blue grey'
+      toggle:
+        icon: material/brightness-7
+        name: Switch to system preference
+
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: 'blue grey'
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
 
 extra_css:
   - assets/css/custom.css
 
 repo_url: https://github.com/Adneycm/CloudConvertR
+repo_name: Adneycm/CloudConvertR
 
 
 nav:
@@ -32,3 +47,6 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+
+plugins:
+    - mkdocs-video

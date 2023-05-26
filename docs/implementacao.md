@@ -658,12 +658,206 @@ resource "aws_sns_topic_subscription" "lambda_errors_email_notification" {
 
 ## Python
 
-- Python
+Nosso código Python é responsável por pegar o arquivo novo no bucket de input, transformá-lo em HTML e colocá-lo no bucket de output. Vamos ver passo a passo como podemos fazer isso.
 
-``` py hl_lines="2 4" linenums="1"
-def bubble_sort(items):
-    for i in range(len(items)):
-        for j in range(len(items) - 1 - i):
-            if items[j] > items[j + 1]:
-                items[j], items[j + 1] = items[j + 1], items[j]
+Nosso códiga utilizará 3 bibliotecas.
+
+* json: Para decodificação da mensagem do SQS;
+* boto3: Para realizar a leitura e escrita de arquivos nos bucket de input e output;
+* markdown: Biblioteca para conversão de arquivos markdown para HTML (essa biblioteca não é nativa e, como explicado anteriormente no tópico de Lambda, foi colocada dentro da Layer)
+
+Nossa função tem como input o evento gerado (mensagem SQS) e o contexto (não iremos utilizar esse argumento na função). Vamos então criar nossão função com esses conceitos iniciais em mente, com isso temos:
+
+``` py
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+  client = boto3.client('s3') # (1)!
+```
+
+1.  Criação do *client* que realizará a leitura e escrita nos buckets S3.
+
+Ao receber a mensagem via SQS de que um novo arquivo foi adicionado no bucket, o python decodifica a mensagem em busca do nome do arquivo novo e do bucket de input. Isso pode ser visto nas linhas 13 e 14:
+``` py hl_lines="13-14" linenums="1"
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+    client = boto3.client('s3')
+    
+    body = json.loads(event['Records'][0]['body'])
+    message = json.loads(body["Message"])
+    s3 = message['Records'][0]['s3']
+    
+    # Source S3 bucket
+    source_bucket_name = s3["bucket"]["name"]
+    object_key = s3["object"]["key"]
+```
+
+Podemos ainda definir as variáveis de output. O bucket de output é sempre o mesmo e o nome do arquivo de saída é o mesmo do arquivo de entrada mudando apenas sua extensão para HTML:
+
+
+``` py hl_lines="17-18" linenums="1"
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+    client = boto3.client('s3')
+    
+    body = json.loads(event['Records'][0]['body'])
+    message = json.loads(body["Message"])
+    s3 = message['Records'][0]['s3']
+    
+    # Source S3 bucket
+    source_bucket_name = s3["bucket"]["name"]
+    object_key = s3["object"]["key"]
+
+    # Destination S3 bucket
+    destination_bucket_name = 'output-bucket-cloudconvertr'
+    destination_object_key = f"{object_key.split('.')[0]}.html"
+    
+    print(f"S3 bucket = {source_bucket_name}\nFile uploaded = {object_key}")
+```
+
+Com essas variáveis em mãos já podemos iniciar a leitura e escrita dos arquivos. Para leitura vamos utilizar a função `get_object()` do boto3:
+
+``` py hl_lines="23" linenums="1"
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+    client = boto3.client('s3')
+    
+    body = json.loads(event['Records'][0]['body'])
+    message = json.loads(body["Message"])
+    s3 = message['Records'][0]['s3']
+    
+    # Source S3 bucket
+    source_bucket_name = s3["bucket"]["name"]
+    object_key = s3["object"]["key"]
+
+    # Destination S3 bucket
+    destination_bucket_name = 'output-bucket-cloudconvertr'
+    destination_object_key = f"{object_key.split('.')[0]}.html"
+    
+    print(f"S3 bucket = {source_bucket_name}\nFile uploaded = {object_key}")
+
+    # Reading de markdown file
+    response = client.get_object(Bucket=source_bucket_name, Key=object_key)
+    data = response['Body'].read() # (1)!
+    md = data.decode('utf-8')
+```
+
+1.  A função `get_object()` retorna uma string de bytes, portanto, devemos decodificar ela para realizar a conversão.
+
+
+Para realizar a conversão vamos utilizar a biblioteca "markdown":
+``` py hl_lines="28" linenums="1"
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+    client = boto3.client('s3')
+    
+    body = json.loads(event['Records'][0]['body'])
+    message = json.loads(body["Message"])
+    s3 = message['Records'][0]['s3']
+    
+    # Source S3 bucket
+    source_bucket_name = s3["bucket"]["name"]
+    object_key = s3["object"]["key"]
+
+    # Destination S3 bucket
+    destination_bucket_name = 'output-bucket-cloudconvertr'
+    destination_object_key = f"{object_key.split('.')[0]}.html"
+    
+    print(f"S3 bucket = {source_bucket_name}\nFile uploaded = {object_key}")
+
+    # Reading de markdown file
+    response = client.get_object(Bucket=source_bucket_name, Key=object_key)
+    data = response['Body'].read() 
+    md = data.decode('utf-8')
+
+    # Converting it to html
+    html = markdown.markdown(md)
+```
+Pronto, agora temos o arquivo em HTML. Só precisamos colocá-lo no bucket de output, e para isso utilizaremos uma função da biblioteca boto3 chamada `put_object()`:
+``` py hl_lines="31" linenums="1"
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+    client = boto3.client('s3')
+    
+    body = json.loads(event['Records'][0]['body'])
+    message = json.loads(body["Message"])
+    s3 = message['Records'][0]['s3']
+    
+    # Source S3 bucket
+    source_bucket_name = s3["bucket"]["name"]
+    object_key = s3["object"]["key"]
+
+    # Destination S3 bucket
+    destination_bucket_name = 'output-bucket-cloudconvertr'
+    destination_object_key = f"{object_key.split('.')[0]}.html"
+    
+    print(f"S3 bucket = {source_bucket_name}\nFile uploaded = {object_key}")
+
+    # Reading de markdown file
+    response = client.get_object(Bucket=source_bucket_name, Key=object_key)
+    data = response['Body'].read()
+    md = data.decode('utf-8')
+
+    # Converting it to html
+    html = markdown.markdown(md)
+
+    # Storing the html file in the output bucket
+    client.put_object(Body=html, Bucket=destination_bucket_name, Key=destination_object_key, ContentType='text/html')
+```
+
+Por fim vamos retornar o status_code 200 para a nossa Lambda para que ela saiba que tudo ocorreu da maneira correta. Com isso, nosso código final ficou da seguinte maneira:
+
+``` py linenums="1"
+import json
+import boto3
+import markdown
+
+def CloudConvertR(event, context):
+    client = boto3.client('s3')
+    
+    body = json.loads(event['Records'][0]['body'])
+    message = json.loads(body["Message"])
+    s3 = message['Records'][0]['s3']
+    
+    # Source S3 bucket
+    source_bucket_name = s3["bucket"]["name"]
+    object_key = s3["object"]["key"]
+
+    # Destination S3 bucket
+    destination_bucket_name = 'output-bucket-cloudconvertr'
+    destination_object_key = f"{object_key.split('.')[0]}.html"
+    
+    print(f"S3 bucket = {source_bucket_name}\nFile uploaded = {object_key}")
+
+    # Reading de markdown file
+    response = client.get_object(Bucket=source_bucket_name, Key=object_key)
+    data = response['Body'].read()
+    md = data.decode('utf-8')
+
+    # Converting it to html
+    html = markdown.markdown(md)
+
+    # Storing the html file in the output bucket
+    client.put_object(Body=html, Bucket=destination_bucket_name, Key=destination_object_key, ContentType='text/html')
+
+    return {
+        'statusCode': 200,
+    }
 ```

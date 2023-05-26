@@ -21,4 +21,7 @@ Ao longo deste documento, detalharemos como essas ferramentas estão integradas 
 A figura abaixo mostra o diagrama de toda a infraestrutura e como os componentes dentro da nuvem se comunicam.
 ![Infrastructure](assets/infra.png)
 
-A interação do usuário se da apenas pelo upload do arquivo markdown para o bucket S3 de input.
+Toda a construção da infraestrutura fora implementada utilizando terraform. Terraform é uma ferramenta de código aberto desenvolvida pela HashiCorp que permite automatizar a criação, configuração e gerenciamento de infraestrutura de forma declarativa. Em termos simples, terraform é usado para provisionar e configurar recursos de computação, como servidores, redes, bancos de dados e outros, em diferentes provedores de nuvem, como AWS, Azure, Google Cloud, entre outros.
+
+
+A interação do usuário se da por meio de duas menairas. A primeira delas é pelo upload do arquivo markdown para o bucket S3 de input, a segunda é o recebimento de emails caso a função Lambda não consiga executar a função.

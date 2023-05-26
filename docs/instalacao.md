@@ -54,6 +54,7 @@ A estrutura do projeto está organizada da seguinte forma:
 CloudConvertR/
 ├── terraform/
 │   ├── python/
+│   │   ├── python.zip
 │   │   └── lambda-CloudConvertR.py
 │   └── main.tf
 ├─ README.md

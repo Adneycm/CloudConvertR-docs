@@ -1,6 +1,7 @@
 # Bem-vindo à documentação do projeto CloudConvertR!
 
-![CloudConvertR](assets/CloudConvertR.png)
+<div style="text-align:center"><img src="assets/CloudConvertR-light.png#gh-light-mode-only" /></div>
+<div style="text-align:center"><img src="assets/CloudConvertR-dark.png#gh-dark-mode-only" /></div>
 
 O CloudConvertR é um projeto desenvolvido com o objetivo de explorar e aprender conceitos iniciais de computação em nuvem. Ele é um conversor de arquivos baseado na nuvem, permitindo a conversão fácil e rápida de arquivos markdown para HTML.
 
@@ -9,22 +10,3 @@ Nesta documentação, você encontrará todas as informações necessárias para
 Se você está interessado em aprender sobre conceitos fundamentais de cloud computing e sua aplicação em um projeto real, o CloudConvertR é ideal. Siga adiante e aproveite esta documentação para explorar e expandir seus conhecimentos em computação em nuvem.
 
 Vamos começar a jornada rumo ao mundo fascinante da computação em nuvem com o CloudConvertR!
-
-## Commands
-
-* `mkdocs new [dir-name]` - Create a new project.
-* `mkdocs serve` - Start the live-reloading docs server.
-* `mkdocs build` - Build the documentation site.
-* `mkdocs -h` - Print help message and exit.
-
-## Project layout
-
-    mkdocs.yml    # The configuration file.
-    docs/
-        index.md  # The documentation homepage.
-        ...       # Other markdown pages, images and other files.
-
-
-# Isso é apenas um teste
-
-Aqui veremos como implementar o código!
